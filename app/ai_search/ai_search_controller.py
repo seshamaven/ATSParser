@@ -91,27 +91,11 @@ class AISearchController:
                 )
                 
                 if explicit_mode:
-                    # Explicit mode: use provided category
+                    # Explicit mode: use provided category (but do NOT override name search;
+                    # if the parser decided this is a name search, we keep search_type='name'
+                    # and ignore category/mastercategory when executing name search downstream)
                     parsed_query["mastercategory"] = mastercategory
                     parsed_query["category"] = category
-                    
-                    # Override: If category/mastercategory provided, force semantic search (skip name detection)
-                    original_search_type = parsed_query.get("search_type", "semantic")
-                    if original_search_type == "name":
-                        parsed_query["search_type"] = "semantic"
-                        # Clear candidate_name from filters since we're doing semantic search
-                        if "filters" in parsed_query and "candidate_name" in parsed_query["filters"]:
-                            parsed_query["filters"]["candidate_name"] = None
-                        logger.info(
-                            f"Category provided, forcing semantic search (overriding name detection). "
-                            f"Original search_type: {original_search_type} → semantic",
-                            extra={
-                                "query_id": search_query_id,
-                                "original_search_type": original_search_type,
-                                "override_reason": "category_provided"
-                            }
-                        )
-                    
                     logger.info(
                         f"Query parsed successfully: search_type={parsed_query['search_type']}, "
                         f"using explicit category: mastercategory={mastercategory}, category={category}",

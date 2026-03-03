@@ -194,28 +194,67 @@ class AISearchQueryParser:
         if "candidate_name" not in filters:
             filters["candidate_name"] = None
         
-        # Heuristic: if designation is missing but we have a single term in must_have_all
-        # that is a role (multi-word phrase or known role keyword), treat as designation.
+        # Heuristic: if designation is missing but we have role-like content in must_have_all,
+        # move it into designation instead of treating it as mandatory skills.
         if not filters["designation"]:
             must_all = filters.get("must_have_all") or []
             if isinstance(must_all, list) and len(must_all) >= 1:
+                # Normalize must_have_all tokens once
+                norm_tokens = [
+                    str(t).strip().lower()
+                    for t in must_all
+                    if isinstance(t, str) and str(t).strip()
+                ]
+                if not norm_tokens:
+                    pass
                 # Single multi-word term → designation (e.g. "computer technician", "python full stack developer")
-                if len(must_all) == 1 and isinstance(must_all[0], str):
-                    term = must_all[0].strip().lower()
+                if len(norm_tokens) == 1:
+                    term = norm_tokens[0]
                     if term and " " in term:
                         filters["designation"] = term
                         filters["must_have_all"] = []
-                # Single-token role keyword in must_have_all (e.g. "qa" in ["python", "qa"]) → move "qa" to designation
                 else:
-                    role_keywords = {"qa", "pm", "ba", "dev", "tester", "analyst", "manager", "developer", "engineer", "sre", "sdet"}
-                    role_terms = [t for t in must_all if isinstance(t, str) and t.strip().lower() in role_keywords]
-                    skill_terms = [t for t in must_all if isinstance(t, str) and t.strip().lower() not in role_keywords]
-                    if len(role_terms) == 1 and skill_terms:
-                        filters["designation"] = role_terms[0].strip().lower()
-                        filters["must_have_all"] = [s.strip().lower() for s in skill_terms if s.strip()]
-                    elif len(role_terms) == 1 and not skill_terms:
-                        filters["designation"] = role_terms[0].strip().lower()
+                    # NEW: Multi-token phrase that matches the overall query text → treat as role phrase.
+                    # Example: query="Distribution logistics" → must_have_all=["distribution","logistics"]
+                    # joined_term="distribution logistics" matches text_for_embedding → designation.
+                    text_for_embedding = str(parsed.get("text_for_embedding", "")).lower().strip()
+                    joined_term = " ".join(norm_tokens)
+                    if joined_term and text_for_embedding and joined_term == text_for_embedding:
+                        filters["designation"] = joined_term
                         filters["must_have_all"] = []
+                    else:
+                        # Single-token role keyword in must_have_all (e.g. "qa" in ["python", "qa"]) → move "qa" to designation
+                        role_keywords = {
+                            # IT / generic
+                            "qa",
+                            "pm",
+                            "ba",
+                            "dev",
+                            "tester",
+                            "analyst",
+                            "manager",
+                            "developer",
+                            "engineer",
+                            "sre",
+                            "sdet",
+                            # NON-IT / operations / logistics hints
+                            "logistics",
+                            "operations",
+                            "supervisor",
+                            "coordinator",
+                            "specialist",
+                            "executive",
+                            "officer",
+                            "associate",
+                        }
+                        role_terms = [t for t in norm_tokens if t in role_keywords]
+                        skill_terms = [t for t in norm_tokens if t not in role_keywords]
+                        if len(role_terms) == 1 and skill_terms:
+                            filters["designation"] = role_terms[0]
+                            filters["must_have_all"] = [s for s in skill_terms if s]
+                        elif len(role_terms) == 1 and not skill_terms:
+                            filters["designation"] = role_terms[0]
+                            filters["must_have_all"] = []
         
         # Category fields are not part of LLM output - they are provided explicitly in payload
         parsed["mastercategory"] = None

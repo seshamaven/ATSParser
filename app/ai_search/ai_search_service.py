@@ -133,12 +133,22 @@ class AISearchService:
             "qa engineer",
             "quality assurance engineer",
             "quality assurance analyst",
+            "qa automation test engineer",
+            "qa automation tester",
+            "test engineer automation",
+            "automation engineer (qa)",
         ],
         # Generic Software Engineer family
         "software_engineer": [
             "software engineer",
             "software developer",
             "application developer",
+            "software development engineer",
+            "sde",
+            "swe",
+            "software engineer i",
+            "software engineer ii",
+            "senior software engineer",
         ],
         # Scrum Master family (for 180k+ resumes optimization)
         "scrum_master": [
@@ -148,6 +158,8 @@ class AISearchService:
             "certified scrum master",
             "scrummaster",
             "scrum master/agile coach",
+            "scrum lead",
+            "agile coach",
         ],
         # Project Manager family
         "project_manager": [
@@ -155,6 +167,9 @@ class AISearchService:
             "program manager",
             "project/program manager",
             "technical project manager",
+            "it project manager",
+            "senior project manager",
+            "delivery manager",
         ],
         # Change Manager family
         "change_manager": [
@@ -162,6 +177,100 @@ class AISearchService:
             "organizational change manager",
             "ocm consultant",
             "change management consultant",
+            "change management lead",
+            "change management specialist",
+        ],
+        # Data Analyst family
+        "data_analyst": [
+            "data analyst",
+            "business data analyst",
+            "bi analyst",
+            "business intelligence analyst",
+            "reporting analyst",
+            "mis analyst",
+            "data analytics analyst",
+            "data analytics specialist",
+            "insights analyst",
+            "marketing data analyst",
+            "financial data analyst",
+        ],
+        # Data Engineer / Big Data Engineer family
+        "data_engineer": [
+            "data engineer",
+            "big data engineer",
+            "sr data engineer",
+            "sr. data engineer",
+            "senior data engineer",
+            "sr big data engineer",
+            "etl developer",
+            "etl engineer",
+            "big data developer",
+            "data engineering specialist",
+        ],
+        # Backend Developer family
+        "backend_developer": [
+            "backend developer",
+            "back end developer",
+            "backend engineer",
+            "back end engineer",
+            "api developer",
+            "server side developer",
+        ],
+        # Frontend Developer family
+        "frontend_developer": [
+            "frontend developer",
+            "front end developer",
+            "frontend engineer",
+            "front end engineer",
+            "ui developer",
+            "web developer",
+        ],
+        # Full Stack Developer family
+        "fullstack_developer": [
+            "full stack developer",
+            "fullstack developer",
+            "full stack engineer",
+            "fullstack engineer",
+            "python full stack developer",
+            "java full stack developer",
+        ],
+        # DevOps Engineer family
+        "devops_engineer": [
+            "devops engineer",
+            "devops",
+            "site reliability engineer",
+            "sre",
+            "platform engineer",
+        ],
+        # Business Analyst family
+        "business_analyst": [
+            "business analyst",
+            "it business analyst",
+            "ba",
+            "functional consultant",
+        ],
+        # Product Manager family
+        "product_manager": [
+            "product manager",
+            "technical product manager",
+            "digital product manager",
+        ],
+        # Logistics / Operations Manager family (NON-IT)
+        "logistics_manager": [
+            "distribution logistics",
+            "logistics manager",
+            "distribution manager",
+            "warehouse and logistics",
+            "logistics coordinator",
+        ],
+        # UI/UX Engineer family
+        "ui_ux_engineer": [
+            "ui developer",
+            "ui engineer",
+            "ux engineer",
+            "ux designer",
+            "ui ux designer",
+            "ui ux developer",
         ],
     }
     
@@ -234,27 +343,83 @@ class AISearchService:
         return None
     
     def _candidate_matches_query_role(
-        self, candidate: Dict[str, Any], query_designation: Optional[str]
+        self,
+        candidate: Dict[str, Any],
+        query_designation: Optional[str],
+        designation_equivalent_list: Optional[List[str]] = None,
     ) -> bool:
         """
-        Return True if the candidate's role matches the query designation (same role family).
-        When the query specifies a role, only candidates in that role family are kept.
-        If query_designation is missing or role cannot be normalized, returns True (no filter).
+        Return True if the candidate's role matches the query designation.
+        
+        Priority:
+        1) If we have an LLM-expanded designation_equivalent_list, treat any exact
+           match on candidate designation/jobrole against that list as a match.
+        2) Otherwise (or in addition), fall back to canonical role-family matching
+           via _normalize_role and ROLE_NORMALIZATION.
+        
+        If query_designation is missing, returns True (no role-based filter).
+        If we cannot normalize the role and have no equivalents, returns True
+        to avoid over-filtering.
         """
         if not query_designation or not str(query_designation).strip():
             return True
+        
+        # Compute canonical family for the query, if known
         normalized_query = self._normalize_role(query_designation)
-        if normalized_query is None:
-            return True  # Unknown role family - don't filter
+        
+        # 1) LLM-expanded equivalent titles (dynamic, query-specific)
+        if designation_equivalent_list:
+            try:
+                equivalents = set()
+                for s in designation_equivalent_list:
+                    if not isinstance(s, str):
+                        continue
+                    title = s.strip().lower()
+                    if not title:
+                        continue
+                    # If we know the canonical family of the query, keep only
+                    # equivalents that either have no known family OR match
+                    # the query family. This prevents, for example, treating
+                    # 'data engineer' as equivalent to 'data analyst'.
+                    if normalized_query:
+                        fam = self._normalize_role(title)
+                        if fam is not None and fam != normalized_query:
+                            continue
+                    equivalents.add(title)
+            except Exception:
+                equivalents = set()
+            
+            if equivalents:
+                cand_designation = (candidate.get("designation") or "").strip().lower()
+                cand_jobrole = (candidate.get("jobrole") or "").strip().lower()
+                for raw in (cand_designation, cand_jobrole):
+                    if raw and raw in equivalents:
+                        return True
+        
+        # 2) Canonical role-family based matching (static normalization)
         cand_designation = candidate.get("designation") or ""
         cand_jobrole = candidate.get("jobrole") or ""
-        for raw in (cand_designation, cand_jobrole):
-            if not raw:
-                continue
-            cand_normalized = self._normalize_role(raw)
-            if cand_normalized == normalized_query:
-                return True
-        return False
+        if normalized_query is not None:
+            for raw in (cand_designation, cand_jobrole):
+                if not raw:
+                    continue
+                cand_normalized = self._normalize_role(raw)
+                if cand_normalized == normalized_query:
+                    return True
+            # No match found via canonical normalization
+            return False
+        
+        # 3) Fallback for roles without a known family: exact title match
+        q = str(query_designation).strip().lower()
+        if q:
+            for raw in (cand_designation, cand_jobrole):
+                if raw and raw.strip().lower() == q:
+                    return True
+            # Strict gating for unknown roles: only exact title matches pass
+            return False
+        
+        # Should not reach here (empty query handled above), but be safe
+        return True
     
     def _normalize_namespace(self, category: str) -> str:
         """
@@ -1493,12 +1658,19 @@ class AISearchService:
                     processed_results.append(candidate)
                 
                 # Hard filter by role when query specifies a designation (exclude wrong roles e.g. Python dev for QA query)
-                query_designation = parsed_query.get("filters", {}).get("designation")
+                filters_for_role = parsed_query.get("filters", {})
+                query_designation = filters_for_role.get("designation")
                 if query_designation:
+                    designation_equivalent_list = filters_for_role.get("designation_equivalent_list") or None
                     before_count = len(processed_results)
                     processed_results = [
-                        c for c in processed_results
-                        if self._candidate_matches_query_role(c, query_designation)
+                        c
+                        for c in processed_results
+                        if self._candidate_matches_query_role(
+                            c,
+                            query_designation,
+                            designation_equivalent_list=designation_equivalent_list,
+                        )
                     ]
                     logger.info(
                         f"Role filter (designation={query_designation!r}): {before_count} -> {len(processed_results)} candidates",
