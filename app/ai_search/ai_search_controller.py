@@ -128,6 +128,63 @@ class AISearchController:
                         "parsed_query": parsed_query
                     }
                 )
+
+                # Heuristic: move obvious domain terms out of skill filters into filters.domain.
+                # This prevents words like "financial" from being treated as mandatory skills.
+                filters = parsed_query.get("filters") or {}
+                if isinstance(filters, dict) and not filters.get("domain"):
+                    domain_keywords = {
+                        "financial",
+                        "finance",
+                        "fintech",
+                        "banking",
+                        "healthcare",
+                        "pharma",
+                        "pharmaceutical",
+                        "retail",
+                        "ecommerce",
+                        "e-commerce",
+                        "insurance",
+                        "telecom",
+                        "telecommunications",
+                        "manufacturing",
+                        "logistics",
+                    }
+                    new_domain_terms = []
+
+                    # Clean up must_have_all
+                    must_have_all = filters.get("must_have_all") or []
+                    kept_all = []
+                    for term in must_have_all:
+                        t = str(term).strip().lower()
+                        if t and t in domain_keywords:
+                            new_domain_terms.append(t)
+                        else:
+                            kept_all.append(term)
+                    filters["must_have_all"] = kept_all
+
+                    # Clean up must_have_one_of_groups
+                    must_have_one_of_groups = filters.get("must_have_one_of_groups") or []
+                    new_groups = []
+                    for group in must_have_one_of_groups:
+                        if not group:
+                            continue
+                        kept_group = []
+                        for term in group:
+                            t = str(term).strip().lower()
+                            if t and t in domain_keywords:
+                                new_domain_terms.append(t)
+                            else:
+                                kept_group.append(term)
+                        if kept_group:
+                            new_groups.append(kept_group)
+                    filters["must_have_one_of_groups"] = new_groups
+
+                    if new_domain_terms:
+                        # Prefer the first detected domain token
+                        filters["domain"] = new_domain_terms[0]
+                        parsed_query["filters"] = filters
+
             except Exception as e:
                 logger.error(
                     f"Query parsing failed: {e}",
