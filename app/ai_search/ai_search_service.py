@@ -1351,6 +1351,7 @@ class AISearchService:
                 # Calculate match score based on match type (prioritize exact matches)
                 if candidate_name_lower == normalized_query:
                     # Exact full name match (highest priority)
+                    
                     match_score = 1.0
                     match_type = "exact"
                 elif normalized_query in candidate_name_lower or candidate_name_lower in normalized_query:
